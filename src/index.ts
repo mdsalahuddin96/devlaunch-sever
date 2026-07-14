@@ -47,7 +47,9 @@ interface GetProjectsQuery {
   tech?: string;
   difficulty?: string;
 }
-
+interface DashboardQuery {
+  userId?: string;
+}
 // Pure ESM Interface with strict route parameter casting
 app.get(
   "/projects",
@@ -271,13 +273,13 @@ app.patch(
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const { title, author, difficulty, liveUrl,imageUrl } = req.body;
+      const { title, author, difficulty, liveUrl, imageUrl } = req.body;
 
       if (!ObjectId.isValid(id)) {
         res.status(400).send({ message: "Invalid project ID format." });
         return;
       }
-      if (!title || !author || !difficulty || !liveUrl||!imageUrl) {
+      if (!title || !author || !difficulty || !liveUrl || !imageUrl) {
         res
           .status(400)
           .send({ message: "All fields are required for updates." });
@@ -289,7 +291,7 @@ app.patch(
         author,
         difficulty,
         liveUrl,
-        imageUrl
+        imageUrl,
       };
 
       const result = await projectsColl.updateOne(
@@ -308,6 +310,109 @@ app.patch(
     } catch (error) {
       res.status(500).send({
         message: "Failed to update project",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  },
+);
+// Dashboard Statistic 
+app.get(
+  "/api/dashboard/stats",
+  async (
+    req: Request<{}, {}, {}, DashboardQuery>,
+    res: Response,
+  ): Promise<void> => {
+    try {
+      const { userId } = req.query;
+      if (!userId || !ObjectId.isValid(userId)) {
+        res.status(400).send({
+          message: "Invalid hex memory reference schema user identifier.",
+        });
+        return;
+      }
+      const query = { userId: userId };
+      const userProjects = await projectsColl.find(query).toArray();
+      if (!userProjects || userProjects.length === 0) {
+        res.status(200).send({
+          success: true,
+          stats: { totalProjects: 0, totalReviews: 0, avgRating: 0 },
+          recentReviews: [],
+          techDistribution: [],
+        });
+        return;
+      }
+      const totalProjects = userProjects.length;
+      let totalReviewsCount = 0;
+      let sumOfRatings = 0;
+      let allReviews: any[] = [];
+      const techCounts: Record<string, number> = {};
+      const weeklyUploads: Record<string, number> = {
+        "Week 1": 0,
+        "Week 2": 0,
+        "Week 3": 0,
+        "Week 4": 0,
+      };
+      userProjects.forEach((project: any) => {
+        if (project.reviews && Array.isArray(project.reviews)) {
+          totalReviewsCount += project.reviews.length;
+          project.reviews.forEach((rev: any) => {
+            sumOfRatings += rev.rating;
+            allReviews.push({
+              projectTitle: project.title,
+              username: rev.username,
+              rating: rev.rating,
+              comment: rev.comment,
+              createdAt: rev.createdAt?.$date || rev.createdAt,
+            });
+          });
+        }
+        if (project.tech && Array.isArray(project.tech)) {
+          project.tech.forEach((t: string) => {
+            techCounts[t] = (techCounts[t] || 0) + 1;
+          });
+        }
+        const date = new Date(project.createdAt);
+        const day = date.getDate();
+        let week = "Week 4";
+        if (day <= 7) week = "Week 1";
+        else if (day <= 14) week = "Week 2";
+        else if (day <= 21) week = "Week 3";
+        weeklyUploads[week] = (weeklyUploads[week] ?? 0) + 1;
+      });
+
+      const avgRating =
+        totalReviewsCount > 0
+          ? (sumOfRatings / totalReviewsCount).toFixed(1)
+          : 0;
+      const recentReviews = allReviews
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 3);
+      const techDistribution = Object.keys(techCounts).map((tech) => ({
+        name: tech,
+        value: techCounts[tech],
+      }));
+      const activityTrendData = Object.keys(weeklyUploads).map((week) => ({
+        name: week,
+        uploads: weeklyUploads[week],
+        interactions:( weeklyUploads[week]??0) + Math.round(totalReviewsCount / 4),
+      }));
+      res.status(200).send({
+        success: true,
+        stats: {
+          totalProjects,
+          totalReviews: totalReviewsCount,
+          avgRating: Number(avgRating),
+        },
+        recentReviews,
+        techDistribution,
+        activityTrendData
+      });
+    } catch (error) {
+      res.status(500).send({
+        message: "Internal TS engine dashboard metrics pipeline crash",
         error: error instanceof Error ? error.message : error,
       });
     }

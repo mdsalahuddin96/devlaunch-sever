@@ -1,4 +1,4 @@
-import express, { Application, Request, Response } from "express";
+import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import {
@@ -8,6 +8,12 @@ import {
   Document,
   ObjectId,
 } from "mongodb";
+
+const {
+  createRemoteJWKSet,
+  jwtVerify,
+} = require("jose-cjs");
+
 
 // Configuration processing
 dotenv.config();
@@ -50,6 +56,39 @@ interface GetProjectsQuery {
 interface DashboardQuery {
   userId?: string;
 }
+
+const verifyToken =async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).send({
+      success: false,
+      message: "Unauthorized Access",
+    });
+    return;
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    res.status(401).send({
+      success: false,
+      message: "Access token missing.",
+    });
+    return;
+  }
+  try {
+    const JWKS = createRemoteJWKSet(
+      new URL('http://localhost:3000/api/auth/jwks')
+    )
+    const { payload } = await jwtVerify(token, JWKS)
+    next()
+  } catch (error) {
+    console.error('Token validation failed:', error)
+    return res.stats(403).json({
+      success:false,
+      message:"Forbidden to access"
+    })
+  }
+};
+
 // Pure ESM Interface with strict route parameter casting
 app.get(
   "/projects",
@@ -87,7 +126,10 @@ app.get(
 );
 app.get(
   "/projects/:id",
+  verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    const token = req.headers.authorization;
+    console.log(token);
     try {
       const id = req.params.id;
 
@@ -120,7 +162,7 @@ app.get(
   },
 );
 app.post(
-  "/projects/:id/review",
+  "/projects/:id/review",verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
@@ -178,7 +220,7 @@ app.post(
   },
 );
 app.post(
-  "/create/project",
+  "/create/project",verifyToken,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const {
@@ -241,7 +283,7 @@ app.post(
 );
 
 app.delete(
-  "/projects/:id",
+  "/projects/:id",verifyToken,
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { id } = req.params;
@@ -269,7 +311,7 @@ app.delete(
 );
 
 app.patch(
-  "/projects/:id",
+  "/projects/:id",verifyToken,
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { id } = req.params;
@@ -315,9 +357,9 @@ app.patch(
     }
   },
 );
-// Dashboard Statistic 
+// Dashboard Statistic
 app.get(
-  "/api/dashboard/stats",
+  "/api/dashboard/stats",verifyToken,
   async (
     req: Request<{}, {}, {}, DashboardQuery>,
     res: Response,
@@ -397,7 +439,8 @@ app.get(
       const activityTrendData = Object.keys(weeklyUploads).map((week) => ({
         name: week,
         uploads: weeklyUploads[week],
-        interactions:( weeklyUploads[week]??0) + Math.round(totalReviewsCount / 4),
+        interactions:
+          (weeklyUploads[week] ?? 0) + Math.round(totalReviewsCount / 4),
       }));
       res.status(200).send({
         success: true,
@@ -408,7 +451,7 @@ app.get(
         },
         recentReviews,
         techDistribution,
-        activityTrendData
+        activityTrendData,
       });
     } catch (error) {
       res.status(500).send({

@@ -119,10 +119,7 @@ app.get(
 );
 app.post(
   "/projects/:id/review",
-  async (
-    req: Request<{ id: string }>,
-    res: Response,
-  ): Promise<void> => {
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
       const { username, rating, comment } = req.body;
@@ -135,12 +132,10 @@ app.post(
       }
 
       if (!username || !rating || !comment) {
-        res
-          .status(400)
-          .send({
-            message:
-              "Missing explicit review metrics parameters validation logs.",
-          });
+        res.status(400).send({
+          message:
+            "Missing explicit review metrics parameters validation logs.",
+        });
         return;
       }
 
@@ -160,29 +155,87 @@ app.post(
       });
 
       if (result.matchedCount === 0) {
-        res
-          .status(404)
-          .send({
-            message:
-              "Target metrics build not found inside cloud matrix index repository.",
-          });
+        res.status(404).send({
+          message:
+            "Target metrics build not found inside cloud matrix index repository.",
+        });
         return;
       }
 
+      res.status(201).send({
+        message:
+          "Review stream pipeline recorded successfully inside database node cluster.",
+        review: newReview,
+      });
+    } catch (error) {
+      res.status(500).send({
+        message: "Internal review data system process pipeline failure",
+        error,
+      });
+    }
+  },
+);
+app.post(
+  "/create/project",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const {
+        title,
+        description,
+        userId,
+        tech,
+        difficulty,
+        author,
+        rating,
+        imageUrl,
+        liveUrl,
+        githubUrl,
+      } = req.body;
+
+      if (
+        !title ||
+        !userId ||
+        !description ||
+        !tech ||
+        !difficulty ||
+        !author ||
+        !imageUrl ||
+        !liveUrl
+      ) {
+        res
+          .status(400)
+          .send({ message: "All required fields must be provided." });
+        return;
+      }
+
+      const newProject = {
+        title,
+        userId,
+        description,
+        tech: Array.isArray(tech)
+          ? tech
+          : tech.split(",").map((t: string) => t.trim()),
+        difficulty,
+        author,
+        rating: rating ? Number(rating) : 5.0,
+        imageUrl,
+        liveUrl,
+        githubUrl: githubUrl || "",
+        createdAt: new Date(),
+      };
+
+      const result = await projectsColl.insertOne(newProject);
       res
         .status(201)
         .send({
-          message:
-            "Review stream pipeline recorded successfully inside database node cluster.",
-          review: newReview,
+          message: "Project added successfully",
+          projectId: result.insertedId,
         });
     } catch (error) {
-      res
-        .status(500)
-        .send({
-          message: "Internal review data system process pipeline failure",
-          error,
-        });
+      res.status(500).send({
+        message: "Failed to add project to database",
+        error: error instanceof Error ? error.message : error,
+      });
     }
   },
 );

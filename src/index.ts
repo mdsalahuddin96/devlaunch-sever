@@ -225,15 +225,89 @@ app.post(
       };
 
       const result = await projectsColl.insertOne(newProject);
-      res
-        .status(201)
-        .send({
-          message: "Project added successfully",
-          projectId: result.insertedId,
-        });
+      res.status(201).send({
+        message: "Project added successfully",
+        projectId: result.insertedId,
+      });
     } catch (error) {
       res.status(500).send({
         message: "Failed to add project to database",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  },
+);
+
+app.delete(
+  "/projects/:id",
+  async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        res.status(400).send({ message: "Invalid project ID format." });
+        return;
+      }
+
+      const result = await projectsColl.deleteOne({ _id: new ObjectId(id) });
+
+      if (result.deletedCount === 0) {
+        res.status(404).send({ message: "Project not found." });
+        return;
+      }
+
+      res.status(200).send({ message: "Project deleted successfully." });
+    } catch (error) {
+      res.status(500).send({
+        message: "Failed to delete project",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  },
+);
+
+app.patch(
+  "/projects/:id",
+  async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { title, author, difficulty, liveUrl,imageUrl } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        res.status(400).send({ message: "Invalid project ID format." });
+        return;
+      }
+      if (!title || !author || !difficulty || !liveUrl||!imageUrl) {
+        res
+          .status(400)
+          .send({ message: "All fields are required for updates." });
+        return;
+      }
+
+      const updatedProject = {
+        title,
+        author,
+        difficulty,
+        liveUrl,
+        imageUrl
+      };
+
+      const result = await projectsColl.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedProject },
+      );
+
+      if (result.matchedCount === 0) {
+        res.status(404).send({ message: "Project not found." });
+        return;
+      }
+
+      res
+        .status(200)
+        .send({ message: "Project updated successfully.", updatedProject });
+    } catch (error) {
+      res.status(500).send({
+        message: "Failed to update project",
         error: error instanceof Error ? error.message : error,
       });
     }

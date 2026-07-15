@@ -1,21 +1,16 @@
-import express, { Application, Request, Response, NextFunction } from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import {
-  MongoClient,
-  ServerApiVersion,
-  Collection,
-  Document,
-  ObjectId,
-} from "mongodb";
-
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+import { MongoClient, ServerApiVersion, ObjectId, Collection, Document } from "mongodb";
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
+
+import { Request, Response, NextFunction } from "express";
 
 // Configuration processing
 dotenv.config();
 
 const port: number | string = process.env.PORT || 5000;
-const app: Application = express();
+const app = express();
 
 app.use(express.json());
 app.use(cors());
@@ -29,21 +24,35 @@ const client: MongoClient = new MongoClient(uri, {
   },
 });
 
-// Explicit TS Types Allocation Matrix for MongoDB Collection
-let projectsColl: Collection<Document>;
+// Explicit TS Types Allocation for MongoDB Collection
+let projectsColl: Collection<Document> | undefined;
 
-async function run(): Promise<void> {
+// Database Connection Helper
+async function connectToDatabase() {
+  if (projectsColl) return; // Already connected
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("devlaunch");
     projectsColl = db.collection("projects");
+    console.log("Successfully connected to MongoDB Cluster!");
   } catch (error) {
     console.error("Database Connection Error:", error);
   }
 }
-run().catch(console.dir);
 
-// Custom Interfaces for Request Queries Type Casting
+// Middleware to ensure DB connection is ready before handling API requests
+const ensureDbConnected = async (req: Request, res: Response, next: NextFunction) => {
+  if (!projectsColl) {
+    await connectToDatabase();
+  }
+  if (!projectsColl) {
+    res.status(500).json({ success: false, message: "Database connection not ready." });
+    return;
+  }
+  next();
+};
+
+// Custom Interfaces for Request Queries
 interface GetProjectsQuery {
   search?: string;
   tech?: string;
@@ -54,6 +63,7 @@ interface DashboardQuery {
   userId?: string;
 }
 
+// Token Verification Middleware
 const verifyToken = async (
   req: Request,
   res: Response,
@@ -83,16 +93,27 @@ const verifyToken = async (
     next();
   } catch (error) {
     console.error("Token validation failed:", error);
-    return res.status(403).json({
+    res.status(403).json({
       success: false,
       message: "Forbidden to access",
     });
+    return;
   }
 };
 
-// Pure ESM Interface with strict route parameter casting
+// --- API ROUTES ---
+
+// Root Endpoint
+app.get("/", (req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    message: "DevLaunch Server is running perfectly!",
+  });
+});
+
 app.get(
   "/projects",
+  ensureDbConnected,
   async (
     req: Request<{}, {}, {}, GetProjectsQuery>,
     res: Response,
@@ -104,12 +125,10 @@ app.get(
       const limit = 12;
       const skipItem = (currentPage - 1) * limit;
 
-      // 1. Text Search Regex Evaluation
       if (search) {
         query.title = { $regex: search, $options: "i" };
       }
 
-      // 2. Double Filtering Engine: Tech Stack Alignment Matrix
       if (tech && tech !== "All") {
         query.tech = tech;
       }
@@ -118,10 +137,10 @@ app.get(
         query.difficulty = difficulty;
       }
       
-      const totalProject = await projectsColl.countDocuments(query);
+      const totalProject = await projectsColl!.countDocuments(query);
       const totalPages = Math.ceil(totalProject / limit);
       
-      const projects = await projectsColl
+      const projects = await projectsColl!
         .find(query)
         .skip(skipItem)
         .limit(limit)
@@ -130,33 +149,33 @@ app.get(
       res.status(200).send({ projects, currentPage, totalProject, totalPages });
     } catch (error) {
       res.status(500).send({
-        message: "Internal TS server matrix failure",
+        message: "Internal TS server failure",
         error: error instanceof Error ? error.message : error,
       });
     }
   },
 );
+
 app.get(
   "/projects/:id",
+  ensureDbConnected,
   verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
-      // Check for valid hex formatting bindings
       if (!ObjectId.isValid(id)) {
-        res.status(401).send({
-          message: "Invalid hex memory reference schema index identifier.",
+        res.status(400).send({
+          message: "Invalid hex identifier.",
         });
         return;
       }
 
       const query = { _id: new ObjectId(id) };
-      const result = await projectsColl.findOne(query);
+      const result = await projectsColl!.findOne(query);
 
       if (!result) {
-        res.status(403).send({
-          message:
-            "Target project metrics block not found in cluster database arrays.",
+        res.status(404).send({
+          message: "Target project not found.",
         });
         return;
       }
@@ -164,49 +183,44 @@ app.get(
       res.status(200).send(result);
     } catch (error) {
       res.status(500).send({
-        message: "Internal TS engine details pipeline crash",
+        message: "Internal server error details pipeline",
         error: error instanceof Error ? error.message : error,
       });
     }
   },
 );
-// manage page user project
+
 app.get(
-  "/user/project/:id",verifyToken,
+  "/user/project/:id",
+  ensureDbConnected,
+  verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
 
-      // Check for valid hex formatting bindings
       if (!ObjectId.isValid(id)) {
-        res.status(401).send({
-          message: "Invalid hex memory reference schema index identifier.",
+        res.status(400).send({
+          message: "Invalid user ID.",
         });
         return;
       }
 
       const query = { userId: id };
-      const result = await projectsColl.find(query).toArray();
-
-      if (!result) {
-        res.status(403).send({
-          message:
-            "Target project metrics block not found in cluster database arrays.",
-        });
-        return;
-      }
+      const result = await projectsColl!.find(query).toArray();
 
       res.status(200).send(result);
     } catch (error) {
       res.status(500).send({
-        message: "Internal TS engine details pipeline crash",
+        message: "Internal pipeline failure",
         error: error instanceof Error ? error.message : error,
       });
     }
   },
 );
+
 app.post(
   "/projects/:id/review",
+  ensureDbConnected,
   verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
@@ -214,23 +228,19 @@ app.post(
       const { username, rating, comment } = req.body;
 
       if (!ObjectId.isValid(id)) {
-        res
-          .status(400)
-          .send({ message: "Invalid hex identifier memory index." });
+        res.status(400).send({ message: "Invalid project ID." });
         return;
       }
 
       if (!username || !rating || !comment) {
         res.status(400).send({
-          message:
-            "Missing explicit review metrics parameters validation logs.",
+          message: "Missing review fields.",
         });
         return;
       }
 
       const query = { _id: new ObjectId(id) };
 
-      // Custom internal validation object allocation binding
       const newReview = {
         username,
         rating: Number(rating),
@@ -238,34 +248,33 @@ app.post(
         createdAt: new Date(),
       };
 
-      // Updating document array structure via push action block configuration
-      const result = await projectsColl.updateOne(query, {
+      const result = await projectsColl!.updateOne(query, {
         $push: { reviews: newReview } as any,
       });
 
       if (result.matchedCount === 0) {
         res.status(404).send({
-          message:
-            "Target metrics build not found inside cloud matrix index repository.",
+          message: "Project not found.",
         });
         return;
       }
 
       res.status(201).send({
-        message:
-          "Review stream pipeline recorded successfully inside database node cluster.",
+        message: "Review added successfully.",
         review: newReview,
       });
     } catch (error) {
       res.status(500).send({
-        message: "Internal review data system process pipeline failure",
+        message: "Internal review post failure",
         error,
       });
     }
   },
 );
+
 app.post(
   "/create/project",
+  ensureDbConnected,
   verifyToken,
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -292,9 +301,7 @@ app.post(
         !imageUrl ||
         !liveUrl
       ) {
-        res
-          .status(400)
-          .send({ message: "All required fields must be provided." });
+        res.status(400).send({ message: "All required fields must be provided." });
         return;
       }
 
@@ -314,7 +321,7 @@ app.post(
         createdAt: new Date(),
       };
 
-      const result = await projectsColl.insertOne(newProject);
+      const result = await projectsColl!.insertOne(newProject);
       res.status(201).send({
         message: "Project added successfully",
         projectId: result.insertedId,
@@ -330,8 +337,9 @@ app.post(
 
 app.delete(
   "/projects/:id",
+  ensureDbConnected,
   verifyToken,
-  async (req: express.Request, res: express.Response): Promise<void> => {
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
 
@@ -340,7 +348,7 @@ app.delete(
         return;
       }
 
-      const result = await projectsColl.deleteOne({ _id: new ObjectId(id) });
+      const result = await projectsColl!.deleteOne({ _id: new ObjectId(id) });
 
       if (result.deletedCount === 0) {
         res.status(404).send({ message: "Project not found." });
@@ -359,8 +367,9 @@ app.delete(
 
 app.patch(
   "/projects/:id",
+  ensureDbConnected,
   verifyToken,
-  async (req: express.Request, res: express.Response): Promise<void> => {
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
       const { title, author, difficulty, liveUrl, imageUrl } = req.body;
@@ -370,9 +379,7 @@ app.patch(
         return;
       }
       if (!title || !author || !difficulty || !liveUrl || !imageUrl) {
-        res
-          .status(400)
-          .send({ message: "All fields are required for updates." });
+        res.status(400).send({ message: "All fields are required for updates." });
         return;
       }
 
@@ -384,7 +391,7 @@ app.patch(
         imageUrl,
       };
 
-      const result = await projectsColl.updateOne(
+      const result = await projectsColl!.updateOne(
         { _id: new ObjectId(id) },
         { $set: updatedProject },
       );
@@ -394,9 +401,7 @@ app.patch(
         return;
       }
 
-      res
-        .status(200)
-        .send({ message: "Project updated successfully.", updatedProject });
+      res.status(200).send({ message: "Project updated successfully.", updatedProject });
     } catch (error) {
       res.status(500).send({
         message: "Failed to update project",
@@ -405,9 +410,11 @@ app.patch(
     }
   },
 );
+
 // Dashboard Statistic
 app.get(
   "/api/dashboard/stats",
+  ensureDbConnected,
   verifyToken,
   async (
     req: Request<{}, {}, {}, DashboardQuery>,
@@ -417,12 +424,12 @@ app.get(
       const { userId } = req.query;
       if (!userId || !ObjectId.isValid(userId)) {
         res.status(400).send({
-          message: "Invalid hex memory reference schema user identifier.",
+          message: "Invalid user identifier.",
         });
         return;
       }
       const query = { userId: userId };
-      const userProjects = await projectsColl.find(query).toArray();
+      const userProjects = await projectsColl!.find(query).toArray();
       if (!userProjects || userProjects.length === 0) {
         res.status(200).send({
           success: true,
@@ -504,12 +511,21 @@ app.get(
       });
     } catch (error) {
       res.status(500).send({
-        message: "Internal TS engine dashboard metrics pipeline crash",
+        message: "Internal dashboard statistics error",
         error: error instanceof Error ? error.message : error,
       });
     }
   },
 );
-app.listen(port, () => {
-  console.log(`DevLaunch Server running on port ${port}`);
-});
+
+// Init Server & DB
+async function run() {
+  await connectToDatabase();
+  app.listen(port, () => {
+    console.log(`DevLaunch Server running on port ${port}`);
+  });
+}
+run().catch(console.dir);
+
+// CommonJS Export for Vercel Serverless compatibility
+module.exports = app;

@@ -77,7 +77,7 @@ const verifyToken = async (
   }
   try {
     const JWKS = createRemoteJWKSet(
-      new URL("http://localhost:3000/api/auth/jwks"),
+      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
     );
     const { payload } = await jwtVerify(token, JWKS);
     next();
@@ -142,7 +142,6 @@ app.get(
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
-
       // Check for valid hex formatting bindings
       if (!ObjectId.isValid(id)) {
         res.status(401).send({

@@ -31,7 +31,7 @@ let projectsColl: Collection<Document> | undefined;
 async function connectToDatabase() {
   if (projectsColl) return; // Already connected
   try {
-    // await client.connect();
+    await client.connect();
     const db = client.db("devlaunch");
     projectsColl = db.collection("projects");
     console.log("Successfully connected to MongoDB Cluster!");
@@ -143,7 +143,7 @@ app.get(
       const projects = await projectsColl!
         .find(query)
         .skip(skipItem)
-        .limit(limit)
+        .limit(limit).sort({createdAt:-1})
         .toArray();
         
       res.status(200).send({ projects, currentPage, totalProject, totalPages });

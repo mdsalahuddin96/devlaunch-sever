@@ -9,11 +9,7 @@ import {
   ObjectId,
 } from "mongodb";
 
-const {
-  createRemoteJWKSet,
-  jwtVerify,
-} = require("jose-cjs");
-
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 
 // Configuration processing
 dotenv.config();
@@ -52,12 +48,17 @@ interface GetProjectsQuery {
   search?: string;
   tech?: string;
   difficulty?: string;
+  page?: string;
 }
 interface DashboardQuery {
   userId?: string;
 }
 
-const verifyToken =async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+const verifyToken = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).send({
@@ -76,16 +77,16 @@ const verifyToken =async (req: Request, res: Response, next: NextFunction): Prom
   }
   try {
     const JWKS = createRemoteJWKSet(
-      new URL('http://localhost:3000/api/auth/jwks')
-    )
-    const { payload } = await jwtVerify(token, JWKS)
-    next()
+      new URL("http://localhost:3000/api/auth/jwks"),
+    );
+    const { payload } = await jwtVerify(token, JWKS);
+    next();
   } catch (error) {
-    console.error('Token validation failed:', error)
-    return res.stats(403).json({
-      success:false,
-      message:"Forbidden to access"
-    })
+    console.error("Token validation failed:", error);
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden to access",
+    });
   }
 };
 
@@ -97,8 +98,11 @@ app.get(
     res: Response,
   ): Promise<void> => {
     try {
-      const { search, tech, difficulty } = req.query;
+      const { search, tech, difficulty, page } = req.query;
       let query: Record<string, any> = {};
+      const currentPage = parseInt(page || "1", 10) || 1;
+      const limit = 12;
+      const skipItem = (currentPage - 1) * limit;
 
       // 1. Text Search Regex Evaluation
       if (search) {
@@ -113,9 +117,17 @@ app.get(
       if (difficulty && difficulty !== "All") {
         query.difficulty = difficulty;
       }
-
-      const result = await projectsColl.find(query).toArray();
-      res.status(200).send(result);
+      
+      const totalProject = await projectsColl.countDocuments(query);
+      const totalPages = Math.ceil(totalProject / limit);
+      
+      const projects = await projectsColl
+        .find(query)
+        .skip(skipItem)
+        .limit(limit)
+        .toArray();
+        
+      res.status(200).send({ projects, currentPage, totalProject, totalPages });
     } catch (error) {
       res.status(500).send({
         message: "Internal TS server matrix failure",
@@ -128,14 +140,12 @@ app.get(
   "/projects/:id",
   verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
-    const token = req.headers.authorization;
-    console.log(token);
     try {
       const id = req.params.id;
 
       // Check for valid hex formatting bindings
       if (!ObjectId.isValid(id)) {
-        res.status(400).send({
+        res.status(401).send({
           message: "Invalid hex memory reference schema index identifier.",
         });
         return;
@@ -145,7 +155,42 @@ app.get(
       const result = await projectsColl.findOne(query);
 
       if (!result) {
-        res.status(404).send({
+        res.status(403).send({
+          message:
+            "Target project metrics block not found in cluster database arrays.",
+        });
+        return;
+      }
+
+      res.status(200).send(result);
+    } catch (error) {
+      res.status(500).send({
+        message: "Internal TS engine details pipeline crash",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  },
+);
+// manage page user project
+app.get(
+  "/user/project/:id",verifyToken,
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const id = req.params.id;
+
+      // Check for valid hex formatting bindings
+      if (!ObjectId.isValid(id)) {
+        res.status(401).send({
+          message: "Invalid hex memory reference schema index identifier.",
+        });
+        return;
+      }
+
+      const query = { userId: id };
+      const result = await projectsColl.find(query).toArray();
+
+      if (!result) {
+        res.status(403).send({
           message:
             "Target project metrics block not found in cluster database arrays.",
         });
@@ -162,7 +207,8 @@ app.get(
   },
 );
 app.post(
-  "/projects/:id/review",verifyToken,
+  "/projects/:id/review",
+  verifyToken,
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const id = req.params.id;
@@ -220,7 +266,8 @@ app.post(
   },
 );
 app.post(
-  "/create/project",verifyToken,
+  "/create/project",
+  verifyToken,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const {
@@ -283,7 +330,8 @@ app.post(
 );
 
 app.delete(
-  "/projects/:id",verifyToken,
+  "/projects/:id",
+  verifyToken,
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { id } = req.params;
@@ -311,7 +359,8 @@ app.delete(
 );
 
 app.patch(
-  "/projects/:id",verifyToken,
+  "/projects/:id",
+  verifyToken,
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { id } = req.params;
@@ -359,7 +408,8 @@ app.patch(
 );
 // Dashboard Statistic
 app.get(
-  "/api/dashboard/stats",verifyToken,
+  "/api/dashboard/stats",
+  verifyToken,
   async (
     req: Request<{}, {}, {}, DashboardQuery>,
     res: Response,
